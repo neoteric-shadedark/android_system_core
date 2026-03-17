@@ -874,6 +874,14 @@ on post-fs-data
     # directory used for connectivity blob store.
     mkdir /data/misc/connectivityblobdb 0770 system system
 
+    # Custom ROM Hide allowlist
+    mkdir /data/adb 0711 root root
+    chmod 0711 /data/adb
+    write /data/adb/.custom_rom_hide_allowlist ""
+    chown system system /data/adb/.custom_rom_hide_allowlist
+    chmod 0644 /data/adb/.custom_rom_hide_allowlist
+    restorecon /data/adb/.custom_rom_hide_allowlist
+
     # Directory for VirtualizationService temporary image files.
     # Delete any stale files owned by the old virtualizationservice uid (b/230056726).
     chmod 0770 /data/misc/virtualizationservice
@@ -1159,6 +1167,10 @@ on boot && property:suspend.disable_sync_on_suspend=true
     write /sys/power/sync_on_suspend 0
 
 on boot
+    # Custom ROM Hide allowlist permissions
+    chmod 0711 /data/adb
+    chmod 0644 /data/adb/.custom_rom_hide_allowlist
+
     # basic network init
     ifup lo
     hostname localhost
