@@ -128,8 +128,6 @@ struct PropertyAuditData {
     const char* name;
 };
 
-static bool weaken_prop_override_security = false;
-
 static int PropertyAuditCallback(void* data, security_class_t /*cls*/, char* buf, size_t len) {
     auto* d = reinterpret_cast<PropertyAuditData*>(data);
 
@@ -406,9 +404,8 @@ static std::optional<uint32_t> PropertySet(const std::string& name, const std::s
     } else {
         prop_info* pi = (prop_info*)__system_property_find(name.c_str());
         if (pi != nullptr) {
-            // ro.* properties are actually "write-once", unless the system decides to
-            if ((StartsWith(name, "ro.") || name == "init.svc.adbd")
-                    && !weaken_prop_override_security) {
+            // ro.* properties are actually "write-once".
+            if (StartsWith(name, "ro.")) {
                 *error = "Read-only property was already set";
                 return {PROP_ERROR_READ_ONLY_PROPERTY};
             }
@@ -1150,34 +1147,6 @@ static void property_initialize_ro_vendor_api_level() {
     }
 }
 
-static void SetIntegrityProps() {
-    bool is_debuggable = android::base::GetBoolProperty("ro.debuggable", false);
-
-    InitPropertySet("init.svc.adbd", "stopped");
-
-    if (is_debuggable)
-            return;
-
-    InitPropertySet("ro.warranty_bit", "0");
-    InitPropertySet("ro.build.keys", "release-keys");
-    InitPropertySet("ro.build.tags", "release-keys");
-    InitPropertySet("ro.system.build.tags", "release-keys");
-    InitPropertySet("ro.vendor.boot.warranty_bit", "0");
-    InitPropertySet("ro.vendor.warranty_bit", "0");
-    InitPropertySet("vendor.boot.vbmeta.device_state", "locked");
-    InitPropertySet("vendor.boot.verifiedbootstate", "green");
-    InitPropertySet("oplusboot.verifiedbootstate", "green");
-    InitPropertySet("sys.oem_unlock_allowed", "0");
-}
-
-static void SetBootIntegrityProps() {
-    InitPropertySet("ro.boot.flash.locked", "1");
-    InitPropertySet("ro.boot.vbmeta.device_state", "locked");
-    InitPropertySet("ro.boot.verifiedbootstate", "green");
-    InitPropertySet("ro.boot.veritymode", "enforcing");
-    InitPropertySet("ro.boot.warranty_bit", "0");
-}
-
 void PropertyLoadBootDefaults() {
     // We read the properties and their values into a map, in order to always allow properties
     // loaded in the later property files to override the properties in loaded in the earlier
@@ -1271,9 +1240,6 @@ void PropertyLoadBootDefaults() {
         }
     }
 
-    // Weaken property override security during execution of the vendor init extension
-    weaken_prop_override_security = true;
-
     // Update with vendor-specific property runtime overrides
     vendor_load_properties();
 
@@ -1283,15 +1249,6 @@ void PropertyLoadBootDefaults() {
     property_derive_legacy_build_fingerprint();
     property_initialize_ro_cpu_abilist();
     property_initialize_ro_vendor_api_level();
-
-    // Report a valid verified boot chain to make Google Play integrity
-    // checks pass.
-    if (!IsRecoveryMode()) {
-      SetIntegrityProps();
-    }
-
-    // Restore the normal property override security after init extension is executed
-    weaken_prop_override_security = false;
 
     update_sys_usb_config();
 }
@@ -1451,6 +1408,15 @@ static void ProcessBootconfig() {
     });
 }
 
+static void SetSafetyNetProps() {
+
+    InitPropertySet("ro.boot.flash.locked", "1");
+    InitPropertySet("ro.boot.vbmeta.device_state", "locked");
+    InitPropertySet("ro.boot.verifiedbootstate", "green");
+    InitPropertySet("ro.boot.veritymode", "enforcing");
+
+}
+
 void PropertyInit() {
     selinux_callback cb;
     cb.func_audit = PropertyAuditCallback;
@@ -1465,12 +1431,12 @@ void PropertyInit() {
         LOG(FATAL) << "Failed to load serialized property info file";
     }
 
-    // Report a valid verified boot chain to make Google Play integrity
+    // Report a valid verified boot chain to make Google SafetyNet integrity
     // checks pass. This needs to be done before parsing the kernel cmdline as
     // these properties are read-only and will be set to invalid values with
     // androidboot cmdline arguments.
     if (!IsRecoveryMode()) {
-      SetBootIntegrityProps();
+      SetSafetyNetProps();
     }
 
     // If arguments are passed both on the command line and in DT,
